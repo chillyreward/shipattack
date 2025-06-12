@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ship Fighter - Type 75 Chinese Navy</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(to bottom, #000428, #004e92);
+        }
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 16px;
+            text-shadow: 1px 1px 2px black;
+        }
+        #ammo {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-size: 16px;
+            text-shadow: 1px 1px 2px black;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px black;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="hud">Health: 100% | Score: 0</div>
+    <div id="ammo">Bullets: 200 | Missiles: 10</div>
+    <div id="gameOver">GAME OVER</div>
+
+    <script>
+        // Game setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const hud = document.getElementById('hud');
+        const ammoDisplay = document.getElementById('ammo');
+        const gameOverDisplay = document.getElementById('gameOver');
+
+        // Set canvas size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Game state
+        let gameRunning = true;
+        let score = 0;
+        let shipHealth = 100;
+        let bullets = 200;
+        let missiles = 10;
+        let radarAngle = 0;
+        let lastEnemySpawn = 0;
+        let enemies = [];
+        let enemyBullets = [];
+        let playerBullets = [];
+        let playerMissiles = [];
+        let explosions = [];
+
+        // Load images (in a real game, you'd preload these properly)
+        const shipImg = new Image();
+        shipImg.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48c3R5bGU+LnN0MHtmaWxsOiM1NTU7c3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjJ9LnN0MXtmaWxsOiNGRkY7c3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjF9PC9zdHlsZT48cmVjdCB4PSIyMCIgeT0iNDAiIGNsYXNzPSJzdDAiIHdpZHRoPSI2MCIgaGVpZ2h0PSIyMCIvPjxwb2x5Z29uIGNsYXNzPSJzdDAiIHBvaW50cz0iODAsNDAgNTAsMTAgNTAsNDAiLz48cmVjdCB4PSIzMCIgeT0iNDUiIGNsYXNzPSJzdDEiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIvPjxyZWN0IHg9IjQ1IiB5PSI0NSIgY2xhc3M9InN0MSIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIi8+PC9zdmc+';
+
+        const enemyImg = new Image();
+        enemyImg.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48c3R5bGU+LnN0MHtmaWxsOiM5OTk7c3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjJ9PC9zdHlsZT48cG9seWdvbiBjbGFzcz0ic3QwIiBwb2ludHM9IjUwLDMwIDMwLDUwIDUwLDcwIDcwLDUwIi8+PC9zdmc+';
+
+        const missileImg = new Image();
+        missileImg.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48c3R5bGU+LnN0MHtmaWxsOiNGRjAwMDA7c3Ryb2tlOiNGRkY7c3Ryb2tlLXdpZHRoOjF9PC9zdHlsZT48cmVjdCB4PSI0MCIgeT0iNDUiIGNsYXNzPSJzdDAiIHdpZHRoPSIyMCIgaGVpZ2h0PSIxMCIvPjxwb2x5Z29uIGNsYXNzPSJzdDAiIHBvaW50cz0iNjAsNTAgODAsMzAgODAsNzAiLz48L3N2Zz4=';
+
+        // Player ship
+        const ship = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            width: 80,
+            height: 60,
+            speed: 5,
+            angle: 0
+        };
+
+        // Game loop
+        function gameLoop() {
+            if (!gameRunning) return;
+
+            // Clear canvas
+            ctx.fillStyle = 'rgba(0, 0, 50, 0.2)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Update radar
+            radarAngle = (radarAngle + 0.02) % (Math.PI * 2);
+
+            // Draw radar
+            drawRadar();
+
+            // Draw player ship
+            drawShip();
+
+            // Spawn enemies
+            if (Date.now() - lastEnemySpawn > 2000) {
+                spawnEnemy();
+                lastEnemySpawn = Date.now();
+            }
+
+            // Update and draw enemies
+            updateEnemies();
+
+            // Update and draw bullets
+            updateBullets();
+
+            // Update and draw missiles
+            updateMissiles();
+
+            // Update and draw explosions
+            updateExplosions();
+
+            // Update HUD
+            updateHUD();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function drawShip() {
+            ctx.save();
+            ctx.translate(ship.x, ship.y);
+            ctx.rotate(ship.angle);
+            
+            // Draw ship (using the image or fallback shape)
+            if (shipImg.complete) {
+                ctx.drawImage(shipImg, -ship.width/2, -ship.height/2, ship.width, ship.height);
+            } else {
+                // Fallback ship drawing
+                ctx.fillStyle = '#555';
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                
+                // Ship body
+                ctx.fillRect(-30, -20, 60, 40);
+                ctx.strokeRect(-30, -20, 60, 40);
+                
+                // Ship front
+                ctx.beginPath();
+                ctx.moveTo(30, -20);
+                ctx.lineTo(50, 0);
+                ctx.lineTo(30, 20);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Ship details
+                ctx.fillStyle = '#FFF';
+                ctx.fillRect(-20, -15, 10, 10);
+                ctx.fillRect(0, -15, 10, 10);
+            }
+            
+            ctx.restore();
+        }
+
+        function drawRadar() {
+            const centerX = canvas.width - 100;
+            const centerY = 100;
+            const radius = 80;
+            
+            // Radar base
+            ctx.fillStyle = 'rgba(0, 50, 0, 0.7)';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#0F0';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Radar lines
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius/2, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(centerX - radius, centerY);
+            ctx.lineTo(centerX + radius, centerY);
+            ctx.moveTo(centerX, centerY - radius);
+            ctx.lineTo(centerX, centerY + radius);
+            ctx.stroke();
+            
+            // Radar sweep
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(
+                centerX + Math.cos(radarAngle) * radius,
+                centerY + Math.sin(radarAngle) * radius
+            );
+            ctx.stroke();
+            
+            // Draw enemy blips on radar
+            enemies.forEach(enemy => {
+                const angle = Math.atan2(enemy.y - ship.y, enemy.x - ship.x);
+                const dist = Math.min(radius, Math.sqrt(
+                    Math.pow(enemy.x - ship.x, 2) + 
+                    Math.pow(enemy.y - ship.y, 2)
+                ) / 5;
+                
+                const blipX = centerX + Math.cos(angle) * dist;
+                const blipY = centerY + Math.sin(angle) * dist;
+                
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.arc(blipX, blipY, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function spawnEnemy() {
+            // Spawn enemy from random direction
+            const angle = Math.random() * Math.PI * 2;
+            const distance = Math.max(canvas.width, canvas.height) * 0.7;
+            
+            const x = ship.x + Math.cos(angle) * distance;
+            const y = ship.y + Math.sin(angle) * distance;
+            
+            enemies.push({
+                x: x,
+                y: y,
+                width: 40,
+                height: 40,
+                speed: 1 + Math.random() * 2,
+                angle: Math.atan2(ship.y - y, ship.x - x),
+                health: 3,
+                lastShot: 0
+            });
+        }
+
+        function updateEnemies() {
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                
+                // Move enemy
+                enemy.x += Math.cos(enemy.angle) * enemy.speed;
+                enemy.y += Math.sin(enemy.angle) * enemy.speed;
+                
+                // Enemy shooting
+                if (Date.now() - enemy.lastShot > 1500) {
+                    const angleToShip = Math.atan2(ship.y - enemy.y, ship.x - enemy.x);
+                    
+                    enemyBullets.push({
+                        x: enemy.x,
+                        y: enemy.y,
+                        speed: 5,
+                        angle: angleToShip,
+                        damage: 5
+                    });
+                    
+                    enemy.lastShot = Date.now();
+                }
+                
+                // Draw enemy
+                ctx.save();
+                ctx.translate(enemy.x, enemy.y);
+                ctx.rotate(enemy.angle + Math.PI/4);
+                
+                if (enemyImg.complete) {
+                    ctx.drawImage(enemyImg, -enemy.width/2, -enemy.height/2, enemy.width, enemy.height);
+                } else {
+                    // Fallback enemy drawing
+                    ctx.fillStyle = '#999';
+                    ctx.beginPath();
+                    ctx.moveTo(0, -20);
+                    ctx.lineTo(-20, 0);
+                    ctx.lineTo(0, 20);
+                    ctx.lineTo(20, 0);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
+                
+                // Check if enemy is out of bounds
+                if (enemy.x < -100 || enemy.x > canvas.width + 100 || 
+                    enemy.y < -100 || enemy.y > canvas.height + 100) {
+                    enemies.splice(i, 1);
+                }
+                
+                // Check collision with ship
+                if (checkCollision(
+                    ship.x - ship.width/2, ship.y - ship.height/2, ship.width, ship.height,
+                    enemy.x - enemy.width/2, enemy.y - enemy.height/2, enemy.width, enemy.height
+                )) {
+                    shipHealth -= 10;
+                    explosions.push({
+                        x: enemy.x,
+                        y: enemy.y,
+                        radius: 30,
+                        maxRadius: 50,
+                        alpha: 1
+                    });
+                    enemies.splice(i, 1);
+                    
+                    if (shipHealth <= 0) {
+                        gameOver();
+                    }
+                }
+            }
+        }
+
+        function updateBullets() {
+            // Player bullets
+            for (let i = playerBullets.length - 1; i >= 0; i--) {
+                const bullet = playerBullets[i];
+                bullet.x += Math.cos(bullet.angle) * bullet.speed;
+                bullet.y += Math.sin(bullet.angle) * bullet.speed;
+                
+                // Draw bullet
+                ctx.fillStyle = '#FF0';
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Check if bullet is out of bounds
+                if (bullet.x < 0 || bullet.x > canvas.width || 
+                    bullet.y < 0 || bullet.y > canvas.height) {
+                    playerBullets.splice(i, 1);
+                    continue;
+                }
+                
+                // Check collision with enemies
+                let hit = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    
+                    if (checkCollision(
+                        bullet.x - 3, bullet.y - 3, 6, 6,
+                        enemy.x - enemy.width/2, enemy.y - enemy.height/2, enemy.width, enemy.height
+                    )) {
+                        enemy.health -= bullet.damage;
+                        hit = true;
+                        
+                        if (enemy.health <= 0) {
+                            explosions.push({
+                                x: enemy.x,
+                                y: enemy.y,
+                                radius: 20,
+                                maxRadius: 40,
+                                alpha: 1
+                            });
+                            enemies.splice(j, 1);
+                            score += 100;
+                        }
+                        break;
+                    }
+                }
+                
+                if (hit) {
+                    playerBullets.splice(i, 1);
+                }
+            }
+            
+            // Enemy bullets
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const bullet = enemyBullets[i];
+                bullet.x += Math.cos(bullet.angle) * bullet.speed;
+                bullet.y += Math.sin(bullet.angle) * bullet.speed;
+                
+                // Draw bullet
+                ctx.fillStyle = '#F00';
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Check if bullet is out of bounds
+                if (bullet.x < 0 || bullet.x > canvas.width || 
+                    bullet.y < 0 || bullet.y > canvas.height) {
+                    enemyBullets.splice(i, 1);
+                    continue;
+                }
+                
+                // Check collision with ship
+                if (checkCollision(
+                    bullet.x - 3, bullet.y - 3, 6, 6,
+                    ship.x - ship.width/2, ship.y - ship.height/2, ship.width, ship.height
+                )) {
+                    shipHealth -= bullet.damage;
+                    enemyBullets.splice(i, 1);
+                    
+                    if (shipHealth <= 0) {
+                        gameOver();
+                    }
+                }
+            }
+        }
+
+        function updateMissiles() {
+            for (let i = playerMissiles.length - 1; i >= 0; i--) {
+                const missile = playerMissiles[i];
+                
+                // Missiles track the closest enemy
+                if (enemies.length > 0) {
+                    let closestEnemy = null;
+                    let closestDist = Infinity;
+                    
+                    enemies.forEach(enemy => {
+                        const dist = Math.sqrt(
+                            Math.pow(enemy.x - missile.x, 2) + 
+                            Math.pow(enemy.y - missile.y, 2)
+                        );
+                        
+                        if (dist < closestDist) {
+                            closestDist = dist;
+                            closestEnemy = enemy;
+                        }
+                    });
+                    
+                    if (closestEnemy) {
+                        const targetAngle = Math.atan2(
+                            closestEnemy.y - missile.y, 
+                            closestEnemy.x - missile.x
+                        );
+                        
+                        // Slowly adjust angle toward target
+                        const angleDiff = ((targetAngle - missile.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+                        missile.angle += angleDiff * 0.1;
+                    }
+                }
+                
+                missile.x += Math.cos(missile.angle) * missile.speed;
+                missile.y += Math.sin(missile.angle) * missile.speed;
+                
+                // Draw missile
+                ctx.save();
+                ctx.translate(missile.x, missile.y);
+                ctx.rotate(missile.angle);
+                
+                if (missileImg.complete) {
+                    ctx.drawImage(missileImg, -15, -5, 30, 10);
+                } else {
+                    // Fallback missile drawing
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(-10, -3, 20, 6);
+                    ctx.beginPath();
+                    ctx.moveTo(10, -3);
+                    ctx.lineTo(15, 0);
+                    ctx.lineTo(10, 3);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+                
+                // Check if missile is out of bounds
+                if (missile.x < -50 || missile.x > canvas.width + 50 || 
+                    missile.y < -50 || missile.y > canvas.height + 50) {
+                    playerMissiles.splice(i, 1);
+                    continue;
+                }
+                
+                // Check collision with enemies
+                let hit = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    
+                    if (checkCollision(
+                        missile.x - 15, missile.y - 5, 30, 10,
+                        enemy.x - enemy.width/2, enemy.y - enemy.height/2, enemy.width, enemy.height
+                    )) {
+                        explosions.push({
+                            x: enemy.x,
+                            y: enemy.y,
+                            radius: 40,
+                            maxRadius: 80,
+                            alpha: 1
+                        });
+                        enemies.splice(j, 1);
+                        hit = true;
+                        score += 200;
+                        break;
+                    }
+                }
+                
+                if (hit) {
+                    playerMissiles.splice(i, 1);
+                }
+            }
+        }
+
+        function updateExplosions() {
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const explosion = explosions[i];
+                
+                // Update explosion
+                explosion.radius += 1;
+                explosion.alpha -= 0.02;
+                
+                // Draw explosion
+                ctx.fillStyle = `rgba(255, ${128 + Math.random() * 128}, 0, ${explosion.alpha})`;
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Remove finished explosions
+                if (explosion.alpha <= 0 || explosion.radius >= explosion.maxRadius) {
+                    explosions.splice(i, 1);
+                }
+            }
+        }
+
+        function updateHUD() {
+            hud.textContent = `Health: ${shipHealth}% | Score: ${score}`;
+            ammoDisplay.textContent = `Bullets: ${bullets} | Missiles: ${missiles}`;
+        }
+
+        function checkCollision(x1, y1, w1, h1, x2, y2, w2, h2) {
+            return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            gameOverDisplay.style.display = 'block';
+        }
+
+        // Input handling
+        window.addEventListener('keydown', (e) => {
+            if (!gameRunning) return;
+            
+            switch (e.key) {
+                case 'ArrowUp':
+                    ship.x += Math.cos(ship.angle) * ship.speed;
+                    ship.y += Math.sin(ship.angle) * ship.speed;
+                    break;
+                case 'ArrowDown':
+                    ship.x -= Math.cos(ship.angle) * ship.speed;
+                    ship.y -= Math.sin(ship.angle) * ship.speed;
+                    break;
+                case 'ArrowLeft':
+                    ship.angle -= 0.1;
+                    break;
+                case 'ArrowRight':
+                    ship.angle += 0.1;
+                    break;
+                case ' ': // Space for bullets
+                    if (bullets > 0) {
+                        playerBullets.push({
+                            x: ship.x + Math.cos(ship.angle) * 30,
+                            y: ship.y + Math.sin(ship.angle) * 30,
+                            speed: 10,
+                            angle: ship.angle,
+                            damage: 1
+                        });
+                        bullets--;
+                    }
+                    break;
+                case 'm': // M for missiles
+                    if (missiles > 0) {
+                        playerMissiles.push({
+                            x: ship.x + Math.cos(ship.angle) * 30,
+                            y: ship.y + Math.sin(ship.angle) * 30,
+                            speed: 5,
+                            angle: ship.angle,
+                            damage: 10
+                        });
+                        missiles--;
+                    }
+                    break;
+            }
+            
+            // Keep ship in bounds
+            ship.x = Math.max(ship.width/2, Math.min(canvas.width - ship.width/2, ship.x));
+            ship.y = Math.max(ship.height/2, Math.min(canvas.height - ship.height/2, ship.y));
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            ship.x = Math.min(ship.x, canvas.width - ship.width/2);
+            ship.y = Math.min(ship.y, canvas.height - ship.height/2);
+        });
+
+        // Start game
+        gameLoop();
+    </script>
+</body>
+</html>
